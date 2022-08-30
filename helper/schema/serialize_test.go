@@ -3,6 +3,7 @@ package schema
 import (
 	"bytes"
 	"testing"
+	"time"
 )
 
 func TestSerializeForHash(t *testing.T) {
@@ -147,6 +148,36 @@ func TestSerializeForHash(t *testing.T) {
 				"woo",
 			}),
 			Expected: "{woo;hello;};",
+		},
+
+		{
+			Schema: &Schema{
+				Type: TypeSet,
+				Elem: &Resource{
+					Schema: map[string]*Schema{
+						"duration": {
+							Type:     TypeString,
+							Required: true,
+							StateFunc: func(v any) string {
+								d, err := time.ParseDuration(v.(string))
+								if err != nil {
+									panic(err)
+								}
+								return d.String()
+							},
+						},
+					},
+				},
+			},
+			Value: NewSet(func(v interface{}) int {
+				d := v.(map[string]interface{})["duration"]
+				return len(d.(string))
+			}, []interface{}{
+				map[string]interface{}{
+					"duration": "100s",
+				},
+			}),
+			Expected: "{<duration:1m40s;>;};",
 		},
 
 		{
