@@ -6,7 +6,7 @@ require (
 	github.com/apparentlymart/go-cidr v1.1.0
 	github.com/apparentlymart/go-dump v0.0.0-20190214190832-042adf3cf4a0
 	github.com/davecgh/go-spew v1.1.1
-	github.com/google/go-cmp v0.5.8
+	github.com/google/go-cmp v0.5.9
 	github.com/hashicorp/go-cty v1.4.1-0.20200414143053-d3edf31b6320
 	github.com/hashicorp/go-hclog v1.2.1
 	github.com/hashicorp/go-multierror v1.1.1
@@ -17,7 +17,7 @@ require (
 	github.com/hashicorp/hcl/v2 v2.13.0
 	github.com/hashicorp/logutils v1.0.0
 	github.com/hashicorp/terraform-exec v0.17.2
-	github.com/hashicorp/terraform-json v0.14.0
+	github.com/hashicorp/terraform-json v0.15.0
 	github.com/hashicorp/terraform-plugin-go v0.14.0
 	github.com/hashicorp/terraform-plugin-log v0.7.0
 	github.com/mitchellh/copystructure v1.2.0
