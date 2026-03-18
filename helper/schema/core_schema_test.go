@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2019, 2026
 // SPDX-License-Identifier: MPL-2.0
 
 package schema
@@ -465,6 +465,63 @@ func TestSchemaMapCoreConfigSchema(t *testing.T) {
 					},
 				},
 				BlockTypes: map[string]*configschema.NestedBlock{},
+			}),
+		},
+		"deprecated attribute": {
+			map[string]*Schema{
+				"string": {
+					Type:       TypeString,
+					Optional:   true,
+					Deprecated: "use other_attribute instead",
+				},
+			},
+			testResource(&configschema.Block{
+				Attributes: map[string]*configschema.Attribute{
+					"string": {
+						Type:               cty.String,
+						Optional:           true,
+						Deprecated:         true,
+						DeprecationMessage: "use other_attribute instead",
+					},
+				},
+				BlockTypes: map[string]*configschema.NestedBlock{},
+			}),
+		},
+		"deprecated block": {
+			map[string]*Schema{
+				"config": {
+					Type:       TypeList,
+					Optional:   true,
+					MaxItems:   1,
+					Deprecated: "use new_config block instead",
+					Elem: &Resource{
+						Schema: map[string]*Schema{
+							"value": {
+								Type:     TypeString,
+								Required: true,
+							},
+						},
+					},
+				},
+			},
+			testResource(&configschema.Block{
+				Attributes: map[string]*configschema.Attribute{},
+				BlockTypes: map[string]*configschema.NestedBlock{
+					"config": {
+						Nesting:  configschema.NestingList,
+						MaxItems: 1,
+						Block: configschema.Block{
+							Attributes: map[string]*configschema.Attribute{
+								"value": {
+									Type:     cty.String,
+									Required: true,
+								},
+							},
+							Deprecated:         true,
+							DeprecationMessage: "use new_config block instead",
+						},
+					},
+				},
 			}),
 		},
 	}

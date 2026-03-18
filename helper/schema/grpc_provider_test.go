@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2019, 2026
 // SPDX-License-Identifier: MPL-2.0
 
 package schema
@@ -3767,6 +3767,7 @@ func TestGRPCProviderServerGetMetadata(t *testing.T) {
 				Resources:          []tfprotov5.ResourceMetadata{},
 				ServerCapabilities: &tfprotov5.ServerCapabilities{
 					GetProviderSchemaOptional: true,
+					GenerateResourceConfig:    true,
 				},
 			},
 		},
@@ -3804,6 +3805,7 @@ func TestGRPCProviderServerGetMetadata(t *testing.T) {
 				},
 				ServerCapabilities: &tfprotov5.ServerCapabilities{
 					GetProviderSchemaOptional: true,
+					GenerateResourceConfig:    true,
 				},
 			},
 		},
@@ -3830,6 +3832,7 @@ func TestGRPCProviderServerGetMetadata(t *testing.T) {
 				},
 				ServerCapabilities: &tfprotov5.ServerCapabilities{
 					GetProviderSchemaOptional: true,
+					GenerateResourceConfig:    true,
 				},
 			},
 		},
@@ -8677,6 +8680,109 @@ func TestApplyResourceChange(t *testing.T) {
 				},
 			},
 		},
+		// Return "Missing Resource Identity" error only if there are no errors
+		// from the resource.
+		// Context: https://github.com/hashicorp/terraform-plugin-sdk/issues/1541
+		"create: null identity with resource error": {
+			server: NewGRPCProviderServer(&Provider{
+				ResourcesMap: map[string]*Resource{
+					"test": {
+						SchemaVersion: 4,
+						CreateContext: func(_ context.Context, rd *ResourceData, _ interface{}) diag.Diagnostics {
+							rd.SetId("baz")
+
+							return diag.Errorf("create error")
+						},
+						Schema: map[string]*Schema{},
+						Identity: &ResourceIdentity{
+							Version: 1,
+							SchemaFunc: func() map[string]*Schema {
+								return map[string]*Schema{
+									"subscription_id": {
+										Type:              TypeString,
+										RequiredForImport: true,
+									},
+									"resource_group_name": {
+										Type:              TypeString,
+										RequiredForImport: true,
+									},
+									"name": {
+										Type:              TypeString,
+										RequiredForImport: true,
+									},
+								}
+							},
+						},
+					},
+				},
+			}),
+			req: &tfprotov5.ApplyResourceChangeRequest{
+				TypeName: "test",
+				PriorState: &tfprotov5.DynamicValue{
+					MsgPack: mustMsgpackMarshal(
+						cty.Object(map[string]cty.Type{}),
+						cty.NullVal(
+							cty.Object(map[string]cty.Type{}),
+						),
+					),
+				},
+				PlannedState: &tfprotov5.DynamicValue{
+					MsgPack: mustMsgpackMarshal(
+						cty.Object(map[string]cty.Type{
+							"id": cty.String,
+						}),
+						cty.ObjectVal(map[string]cty.Value{
+							"id": cty.UnknownVal(cty.String),
+						}),
+					),
+				},
+				PlannedIdentity: &tfprotov5.ResourceIdentityData{
+					IdentityData: &tfprotov5.DynamicValue{
+						MsgPack: mustMsgpackMarshal(
+							cty.Object(map[string]cty.Type{
+								"subscription_id":     cty.String,
+								"resource_group_name": cty.String,
+								"name":                cty.String,
+							}),
+							cty.ObjectVal(map[string]cty.Value{
+								"subscription_id":     cty.NullVal(cty.String),
+								"resource_group_name": cty.NullVal(cty.String),
+								"name":                cty.NullVal(cty.String),
+							}),
+						),
+					},
+				},
+				Config: &tfprotov5.DynamicValue{
+					MsgPack: mustMsgpackMarshal(
+						cty.Object(map[string]cty.Type{
+							"id": cty.String,
+						}),
+						cty.ObjectVal(map[string]cty.Value{
+							"id": cty.NullVal(cty.String),
+						}),
+					),
+				},
+			},
+			expected: &tfprotov5.ApplyResourceChangeResponse{
+				NewState: &tfprotov5.DynamicValue{
+					MsgPack: mustMsgpackMarshal(
+						cty.Object(map[string]cty.Type{
+							"id": cty.String,
+						}),
+						cty.ObjectVal(map[string]cty.Value{
+							"id": cty.StringVal("baz"),
+						}),
+					),
+				},
+				Private: []uint8(`{"schema_version":"4"}`),
+				Diagnostics: []*tfprotov5.Diagnostic{
+					{
+						Severity: tfprotov5.DiagnosticSeverityError,
+						Summary:  "create error",
+					},
+				},
+			},
+		},
 		"create-resource-identity-may-change": {
 			server: NewGRPCProviderServer(&Provider{
 				ResourcesMap: map[string]*Resource{
@@ -11234,6 +11340,405 @@ func TestPrepareProviderConfig(t *testing.T) {
 
 			if tc.ExpectConfig.GoString() != val.GoString() {
 				t.Fatalf("\nexpected: %#v\ngot: %#v", tc.ExpectConfig, val)
+			}
+		})
+	}
+}
+
+func TestGenerateResourceConfig(t *testing.T) {
+	t.Parallel()
+
+	testCases := map[string]struct {
+		server      *GRPCProviderServer
+		req         *tfprotov5.GenerateResourceConfigRequest
+		expected    *tfprotov5.GenerateResourceConfigResponse
+		ExpectError string
+	}{
+		"null-state": {
+			server: NewGRPCProviderServer(&Provider{
+				ResourcesMap: map[string]*Resource{
+					"test": {
+						SchemaVersion: 1,
+						Schema: map[string]*Schema{
+							"id": {
+								Type:     TypeString,
+								Computed: true,
+								Optional: true,
+							},
+						},
+					},
+				},
+			}),
+			req: &tfprotov5.GenerateResourceConfigRequest{
+				TypeName: "test",
+				State: &tfprotov5.DynamicValue{
+					MsgPack: mustMsgpackMarshal(
+						cty.Object(map[string]cty.Type{
+							"id": cty.String,
+						}),
+						cty.NullVal(cty.Object(map[string]cty.Type{
+							"id": cty.String,
+						})),
+					),
+				},
+			},
+			ExpectError: "Unexpected Generate Config Request",
+		},
+		"simple-resource": {
+			server: NewGRPCProviderServer(&Provider{
+				ResourcesMap: map[string]*Resource{
+					"test": {
+						SchemaVersion: 1,
+						Schema: map[string]*Schema{
+							"id": {
+								Type:     TypeString,
+								Computed: true,
+								Optional: true,
+							},
+							"test_computed": {
+								Type:     TypeString,
+								Computed: true,
+							},
+							"test_optional": {
+								Type:     TypeString,
+								Optional: true,
+							},
+							"test_required": {
+								Type:     TypeString,
+								Required: true,
+							},
+							"test_deprecated": {
+								Type:     TypeList,
+								Optional: true,
+								Elem: &Schema{
+									Type: TypeString,
+								},
+								Deprecated: "deprecated",
+							},
+							"test_false_bool": {
+								Type:     TypeBool,
+								Optional: true,
+							},
+							"test_empty_string": {
+								Type:     TypeString,
+								Optional: true,
+							},
+							"test_deprecated_block": {
+								Type:       TypeList,
+								Optional:   true,
+								Deprecated: "deprecated",
+								Elem: &Resource{
+									Schema: map[string]*Schema{
+										"test_nested_block_attr": {
+											Type:     TypeString,
+											Optional: true,
+										},
+									},
+								},
+							},
+							"test_nested_block": {
+								Type:     TypeList,
+								Optional: true,
+								Elem: &Resource{
+									Schema: map[string]*Schema{
+										"test_nested_nested_block": {
+											Type:     TypeList,
+											Optional: true,
+											Elem: &Resource{
+												Schema: map[string]*Schema{
+													"test_computed": {
+														Type:     TypeString,
+														Computed: true,
+													},
+													"test_optional": {
+														Type:     TypeString,
+														Optional: true,
+													},
+													"test_required": {
+														Type:     TypeString,
+														Required: true,
+													},
+													"test_deprecated": {
+														Type:     TypeList,
+														Optional: true,
+														Elem: &Schema{
+															Type: TypeString,
+														},
+														Deprecated: "deprecated",
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+							"test_nested_deprecated_block": {
+								Type:     TypeList,
+								Optional: true,
+								Elem: &Resource{
+									Schema: map[string]*Schema{
+										"test_nested_nested_block": {
+											Type:       TypeList,
+											Optional:   true,
+											Deprecated: "deprecated",
+											Elem: &Resource{
+												Schema: map[string]*Schema{
+													"test_nested_nested_block_attr": {
+														Type:     TypeString,
+														Optional: true,
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}),
+			req: &tfprotov5.GenerateResourceConfigRequest{
+				TypeName: "test",
+				State: &tfprotov5.DynamicValue{
+					MsgPack: mustMsgpackMarshal(
+						cty.Object(map[string]cty.Type{
+							"id":                cty.String,
+							"test_computed":     cty.String,
+							"test_optional":     cty.String,
+							"test_required":     cty.String,
+							"test_deprecated":   cty.List(cty.String),
+							"test_false_bool":   cty.Bool,
+							"test_empty_string": cty.String,
+							"test_deprecated_block": cty.List(cty.Object(map[string]cty.Type{
+								"test_nested_block_attr": cty.String,
+							})),
+							"test_nested_block": cty.List(cty.Object(map[string]cty.Type{
+								"test_nested_nested_block": cty.List(cty.Object(map[string]cty.Type{
+									"test_computed":   cty.String,
+									"test_optional":   cty.String,
+									"test_required":   cty.String,
+									"test_deprecated": cty.List(cty.String),
+								})),
+							})),
+							"test_nested_deprecated_block": cty.List(cty.Object(map[string]cty.Type{
+								"test_nested_nested_block": cty.List(cty.Object(map[string]cty.Type{
+									"test_nested_nested_block_attr": cty.String,
+								})),
+							})),
+						}),
+						cty.ObjectVal(map[string]cty.Value{
+							"id":            cty.StringVal("id-val"),
+							"test_computed": cty.StringVal("computed-val"),
+							"test_optional": cty.StringVal("optional-val"),
+							"test_required": cty.StringVal("required-val"),
+							"test_deprecated": cty.ListVal([]cty.Value{
+								cty.StringVal("hello"),
+								cty.StringVal("world"),
+							}),
+							"test_false_bool":   cty.BoolVal(false),
+							"test_empty_string": cty.StringVal(""),
+							"test_deprecated_block": cty.ListVal([]cty.Value{
+								cty.ObjectVal(map[string]cty.Value{
+									"test_nested_block_attr": cty.StringVal("val-a"),
+								}),
+								cty.ObjectVal(map[string]cty.Value{
+									"test_nested_block_attr": cty.StringVal("val-b"),
+								}),
+							}),
+							"test_nested_block": cty.ListVal([]cty.Value{
+								cty.ObjectVal(map[string]cty.Value{
+									"test_nested_nested_block": cty.ListVal([]cty.Value{
+										cty.ObjectVal(map[string]cty.Value{
+											"test_computed": cty.StringVal("computed-val-a"),
+											"test_optional": cty.StringVal("optional-val-a"),
+											"test_required": cty.StringVal("required-val-a"),
+											"test_deprecated": cty.ListVal([]cty.Value{
+												cty.StringVal("hello-a"),
+												cty.StringVal("world-a"),
+											}),
+										}),
+										cty.ObjectVal(map[string]cty.Value{
+											"test_computed": cty.StringVal("computed-val-b"),
+											"test_optional": cty.StringVal("optional-val-b"),
+											"test_required": cty.StringVal("required-val-b"),
+											"test_deprecated": cty.ListVal([]cty.Value{
+												cty.StringVal("hello-b"),
+												cty.StringVal("world-b"),
+											}),
+										}),
+									}),
+								}),
+								cty.ObjectVal(map[string]cty.Value{
+									"test_nested_nested_block": cty.ListVal([]cty.Value{
+										cty.ObjectVal(map[string]cty.Value{
+											"test_computed": cty.StringVal("computed-val-a"),
+											"test_optional": cty.StringVal("optional-val-a"),
+											"test_required": cty.StringVal("required-val-a"),
+											"test_deprecated": cty.ListVal([]cty.Value{
+												cty.StringVal("hello-a"),
+												cty.StringVal("world-a"),
+											}),
+										}),
+										cty.ObjectVal(map[string]cty.Value{
+											"test_computed": cty.StringVal("computed-val-b"),
+											"test_optional": cty.StringVal("optional-val-b"),
+											"test_required": cty.StringVal("required-val-b"),
+											"test_deprecated": cty.ListVal([]cty.Value{
+												cty.StringVal("hello-b"),
+												cty.StringVal("world-b"),
+											}),
+										}),
+									}),
+								}),
+							}),
+							"test_nested_deprecated_block": cty.ListVal([]cty.Value{
+								cty.ObjectVal(map[string]cty.Value{
+									"test_nested_nested_block": cty.ListVal([]cty.Value{
+										cty.ObjectVal(map[string]cty.Value{
+											"test_nested_nested_block_attr": cty.StringVal("val-a"),
+										}),
+										cty.ObjectVal(map[string]cty.Value{
+											"test_nested_nested_block_attr": cty.StringVal("val-b"),
+										}),
+									}),
+								}),
+								cty.ObjectVal(map[string]cty.Value{
+									"test_nested_nested_block": cty.ListVal([]cty.Value{
+										cty.ObjectVal(map[string]cty.Value{
+											"test_nested_nested_block_attr": cty.StringVal("val-a"),
+										}),
+										cty.ObjectVal(map[string]cty.Value{
+											"test_nested_nested_block_attr": cty.StringVal("val-b"),
+										}),
+									}),
+								}),
+							}),
+						}),
+					),
+				},
+			},
+			expected: &tfprotov5.GenerateResourceConfigResponse{
+				Config: &tfprotov5.DynamicValue{
+					MsgPack: mustMsgpackMarshal(
+						cty.Object(map[string]cty.Type{
+							"id":                cty.String,
+							"test_computed":     cty.String,
+							"test_optional":     cty.String,
+							"test_required":     cty.String,
+							"test_deprecated":   cty.List(cty.String),
+							"test_false_bool":   cty.Bool,
+							"test_empty_string": cty.String,
+							"test_deprecated_block": cty.List(cty.Object(map[string]cty.Type{
+								"test_nested_block_attr": cty.String,
+							})),
+							"test_nested_block": cty.List(cty.Object(map[string]cty.Type{
+								"test_nested_nested_block": cty.List(cty.Object(map[string]cty.Type{
+									"test_computed":   cty.String,
+									"test_optional":   cty.String,
+									"test_required":   cty.String,
+									"test_deprecated": cty.List(cty.String),
+								})),
+							})),
+							"test_nested_deprecated_block": cty.List(cty.Object(map[string]cty.Type{
+								"test_nested_nested_block": cty.List(cty.Object(map[string]cty.Type{
+									"test_nested_nested_block_attr": cty.String,
+								})),
+							})),
+						}),
+						cty.ObjectVal(map[string]cty.Value{
+							"id":                cty.NullVal(cty.String),
+							"test_computed":     cty.NullVal(cty.String),
+							"test_optional":     cty.StringVal("optional-val"),
+							"test_required":     cty.StringVal("required-val"),
+							"test_deprecated":   cty.NullVal(cty.List(cty.String)),
+							"test_false_bool":   cty.BoolVal(false),
+							"test_empty_string": cty.NullVal(cty.String),
+							"test_deprecated_block": cty.NullVal(cty.List(cty.Object(map[string]cty.Type{
+								"test_nested_block_attr": cty.String,
+							}))),
+							"test_nested_block": cty.ListVal([]cty.Value{
+								cty.ObjectVal(map[string]cty.Value{
+									"test_nested_nested_block": cty.ListVal([]cty.Value{
+										cty.ObjectVal(map[string]cty.Value{
+											"test_computed":   cty.NullVal(cty.String),
+											"test_optional":   cty.StringVal("optional-val-a"),
+											"test_required":   cty.StringVal("required-val-a"),
+											"test_deprecated": cty.NullVal(cty.List(cty.String)),
+										}),
+										cty.ObjectVal(map[string]cty.Value{
+											"test_computed":   cty.NullVal(cty.String),
+											"test_optional":   cty.StringVal("optional-val-b"),
+											"test_required":   cty.StringVal("required-val-b"),
+											"test_deprecated": cty.NullVal(cty.List(cty.String)),
+										}),
+									}),
+								}),
+								cty.ObjectVal(map[string]cty.Value{
+									"test_nested_nested_block": cty.ListVal([]cty.Value{
+										cty.ObjectVal(map[string]cty.Value{
+											"test_computed":   cty.NullVal(cty.String),
+											"test_optional":   cty.StringVal("optional-val-a"),
+											"test_required":   cty.StringVal("required-val-a"),
+											"test_deprecated": cty.NullVal(cty.List(cty.String)),
+										}),
+										cty.ObjectVal(map[string]cty.Value{
+											"test_computed":   cty.NullVal(cty.String),
+											"test_optional":   cty.StringVal("optional-val-b"),
+											"test_required":   cty.StringVal("required-val-b"),
+											"test_deprecated": cty.NullVal(cty.List(cty.String)),
+										}),
+									}),
+								}),
+							}),
+							"test_nested_deprecated_block": cty.ListVal([]cty.Value{
+								cty.ObjectVal(map[string]cty.Value{
+									"test_nested_nested_block": cty.NullVal(cty.List(cty.Object(map[string]cty.Type{
+										"test_nested_nested_block_attr": cty.String,
+									}))),
+								}),
+								cty.ObjectVal(map[string]cty.Value{
+									"test_nested_nested_block": cty.NullVal(cty.List(cty.Object(map[string]cty.Type{
+										"test_nested_nested_block_attr": cty.String,
+									}))),
+								}),
+							}),
+						}),
+					),
+				},
+			},
+		},
+	}
+
+	for name, testCase := range testCases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			resp, err := testCase.server.GenerateResourceConfig(context.Background(), testCase.req)
+
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if testCase.ExpectError != "" && len(resp.Diagnostics) > 0 {
+				for _, d := range resp.Diagnostics {
+					if !strings.Contains(d.Summary, testCase.ExpectError) {
+						t.Fatalf("Unexpected error: %s/%s", d.Summary, d.Detail)
+					}
+				}
+				return
+			}
+
+			if diff := cmp.Diff(resp, testCase.expected, valueComparer); diff != "" {
+				ty := testCase.server.getResourceSchemaBlock("test").ImpliedType()
+
+				if resp != nil && resp.Config != nil {
+					t.Logf("resp.Config.MsgPack: %s", mustMsgpackUnmarshal(ty, resp.Config.MsgPack))
+				}
+
+				if testCase.expected != nil && testCase.expected.Config != nil {
+					t.Logf("expected: %s", mustMsgpackUnmarshal(ty, testCase.expected.Config.MsgPack))
+				}
+
+				t.Error(diff)
 			}
 		})
 	}

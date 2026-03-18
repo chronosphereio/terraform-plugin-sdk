@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2019, 2026
 // SPDX-License-Identifier: MPL-2.0
 
 package schema
@@ -461,8 +461,8 @@ func TestConfigFieldReader_computedComplexSet(t *testing.T) {
 	hashfunc := func(v interface{}) int {
 		var buf bytes.Buffer
 		m := v.(map[string]interface{})
-		buf.WriteString(fmt.Sprintf("%s-", m["name"].(string)))
-		buf.WriteString(fmt.Sprintf("%s-", m["vhd_uri"].(string)))
+		fmt.Fprintf(&buf, "%s-", m["name"].(string))
+		fmt.Fprintf(&buf, "%s-", m["vhd_uri"].(string))
 		return hashcode.String(buf.String())
 	}
 
