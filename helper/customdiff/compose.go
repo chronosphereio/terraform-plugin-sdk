@@ -1,9 +1,11 @@
+// Copyright IBM Corp. 2019, 2026
+// SPDX-License-Identifier: MPL-2.0
+
 package customdiff
 
 import (
 	"context"
-
-	"github.com/hashicorp/go-multierror"
+	"errors"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
@@ -21,7 +23,7 @@ import (
 //	&schema.Resource{
 //	    // ...
 //	    CustomizeDiff: customdiff.All(
-//	        customdiff.ValidateChange("size", func (old, new, meta interface{}) error {
+//	        customdiff.ValidateChange("size", func (ctx context.Context, old, new, meta interface{}) error {
 //	            // If we are increasing "size" then the new value must be
 //	            // a multiple of the old value.
 //	            if new.(int) <= old.(int) {
@@ -32,12 +34,12 @@ import (
 //	            }
 //	            return nil
 //	        }),
-//	        customdiff.ForceNewIfChange("size", func (old, new, meta interface{}) bool {
+//	        customdiff.ForceNewIfChange("size", func (ctx context.Context, old, new, meta interface{}) bool {
 //	            // "size" can only increase in-place, so we must create a new resource
 //	            // if it is decreased.
 //	            return new.(int) < old.(int)
 //	        }),
-//	        customdiff.ComputedIf("version_id", func (d *schema.ResourceDiff, meta interface{}) bool {
+//	        customdiff.ComputedIf("version_id", func (ctx context.Context, d *schema.ResourceDiff, meta interface{}) bool {
 //	            // Any change to "content" causes a new "version_id" to be allocated.
 //	            return d.HasChange("content")
 //	        }),
@@ -45,14 +47,14 @@ import (
 //	}
 func All(funcs ...schema.CustomizeDiffFunc) schema.CustomizeDiffFunc {
 	return func(ctx context.Context, d *schema.ResourceDiff, meta interface{}) error {
-		var err error
+		var errs []error
 		for _, f := range funcs {
 			thisErr := f(ctx, d, meta)
 			if thisErr != nil {
-				err = multierror.Append(err, thisErr)
+				errs = append(errs, thisErr)
 			}
 		}
-		return err
+		return errors.Join(errs...)
 	}
 }
 

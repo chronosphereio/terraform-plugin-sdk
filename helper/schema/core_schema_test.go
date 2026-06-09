@@ -1,3 +1,6 @@
+// Copyright IBM Corp. 2019, 2026
+// SPDX-License-Identifier: MPL-2.0
+
 package schema
 
 import (
@@ -31,15 +34,6 @@ func testResource(block *configschema.Block) *configschema.Block {
 }
 
 func TestSchemaMapCoreConfigSchema(t *testing.T) {
-	// these are global so if new tests are written we should probably employ a mutex
-	DescriptionKind = StringMarkdown
-	SchemaDescriptionBuilder = func(s *Schema) string {
-		if s.Required && s.Description != "" {
-			return fmt.Sprintf("**Required** %s", s.Description)
-		}
-		return s.Description
-	}
-
 	tests := map[string]struct {
 		Schema map[string]*Schema
 		Want   *configschema.Block
@@ -72,10 +66,9 @@ func TestSchemaMapCoreConfigSchema(t *testing.T) {
 			testResource(&configschema.Block{
 				Attributes: map[string]*configschema.Attribute{
 					"int": {
-						Type:            cty.Number,
-						Required:        true,
-						Description:     "**Required** foo bar baz",
-						DescriptionKind: configschema.StringMarkdown,
+						Type:        cty.Number,
+						Required:    true,
+						Description: "foo bar baz",
 					},
 					"float": {
 						Type:     cty.Number,
@@ -453,6 +446,82 @@ func TestSchemaMapCoreConfigSchema(t *testing.T) {
 					},
 				},
 				BlockTypes: map[string]*configschema.NestedBlock{},
+			}),
+		},
+		"write-only": {
+			map[string]*Schema{
+				"string": {
+					Type:      TypeString,
+					Optional:  true,
+					WriteOnly: true,
+				},
+			},
+			testResource(&configschema.Block{
+				Attributes: map[string]*configschema.Attribute{
+					"string": {
+						Type:      cty.String,
+						Optional:  true,
+						WriteOnly: true,
+					},
+				},
+				BlockTypes: map[string]*configschema.NestedBlock{},
+			}),
+		},
+		"deprecated attribute": {
+			map[string]*Schema{
+				"string": {
+					Type:       TypeString,
+					Optional:   true,
+					Deprecated: "use other_attribute instead",
+				},
+			},
+			testResource(&configschema.Block{
+				Attributes: map[string]*configschema.Attribute{
+					"string": {
+						Type:               cty.String,
+						Optional:           true,
+						Deprecated:         true,
+						DeprecationMessage: "use other_attribute instead",
+					},
+				},
+				BlockTypes: map[string]*configschema.NestedBlock{},
+			}),
+		},
+		"deprecated block": {
+			map[string]*Schema{
+				"config": {
+					Type:       TypeList,
+					Optional:   true,
+					MaxItems:   1,
+					Deprecated: "use new_config block instead",
+					Elem: &Resource{
+						Schema: map[string]*Schema{
+							"value": {
+								Type:     TypeString,
+								Required: true,
+							},
+						},
+					},
+				},
+			},
+			testResource(&configschema.Block{
+				Attributes: map[string]*configschema.Attribute{},
+				BlockTypes: map[string]*configschema.NestedBlock{
+					"config": {
+						Nesting:  configschema.NestingList,
+						MaxItems: 1,
+						Block: configschema.Block{
+							Attributes: map[string]*configschema.Attribute{
+								"value": {
+									Type:     cty.String,
+									Required: true,
+								},
+							},
+							Deprecated:         true,
+							DeprecationMessage: "use new_config block instead",
+						},
+					},
+				},
 			}),
 		},
 	}

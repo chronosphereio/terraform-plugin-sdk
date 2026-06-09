@@ -1,3 +1,6 @@
+// Copyright IBM Corp. 2019, 2026
+// SPDX-License-Identifier: MPL-2.0
+
 package schema
 
 import (
@@ -70,7 +73,7 @@ func testApplyDiff(t *testing.T,
 		}
 	}
 
-	// Resource.Meta will be hanlded separately, so it's OK that we lose the
+	// Resource.Meta will be handled separately, so it's OK that we lose the
 	// timeout values here.
 	expectedState, err := StateValueFromInstanceState(expected, testSchema.Block.ImpliedType())
 	if err != nil {
@@ -78,7 +81,7 @@ func testApplyDiff(t *testing.T,
 	}
 
 	if !cmp.Equal(expectedState, newState, equateEmpty, typeComparer, valueComparer) {
-		t.Fatalf(cmp.Diff(expectedState, newState, equateEmpty, typeComparer, valueComparer))
+		t.Fatal(cmp.Diff(expectedState, newState, equateEmpty, typeComparer, valueComparer))
 	}
 }
 
@@ -2228,8 +2231,8 @@ func TestShimSchemaMap_Diff(t *testing.T) {
 					Set: func(v interface{}) int {
 						var buf bytes.Buffer
 						m := v.(map[string]interface{})
-						buf.WriteString(fmt.Sprintf("%s-", m["device_name"].(string)))
-						buf.WriteString(fmt.Sprintf("%t-", m["delete_on_termination"].(bool)))
+						fmt.Fprintf(&buf, "%s-", m["device_name"].(string))
+						fmt.Fprintf(&buf, "%t-", m["delete_on_termination"].(bool))
 						return hashcode.String(buf.String())
 					},
 				},

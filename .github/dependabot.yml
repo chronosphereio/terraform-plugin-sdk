@@ -1,9 +1,5 @@
 version: 2
 updates:
-  - package-ecosystem: "github-actions"
-    directory: "/"
-    schedule:
-      interval: "daily"
   - package-ecosystem: "gomod"
     directory: "/"
     schedule:
@@ -14,3 +10,18 @@ updates:
       - dependency-name: "github.com/hashicorp/go-hclog"
       # go-plugin should only be updated via terraform-plugin-go
       - dependency-name: "github.com/hashicorp/go-plugin"
+  - package-ecosystem: "gomod"
+    directory: "/tools"
+    schedule:
+      interval: "daily"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    groups:
+      "github-actions":
+        patterns:
+          - "*" # Group all GitHub Actions dependencies together
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Etc/UTC"
