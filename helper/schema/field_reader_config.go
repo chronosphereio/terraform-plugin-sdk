@@ -40,6 +40,11 @@ func (r *ConfigFieldReader) readField(
 	}
 
 	if !nested {
+		// The loop below rewrites set codes in the address, so work on a copy:
+		// callers such as readListField reuse the slice they pass in, and a
+		// rewritten address no longer matches their set codes.
+		address = append([]string(nil), address...)
+
 		// If we have a set anywhere in the address, then we need to
 		// read that set out in order and actually replace that part of
 		// the address with the real list index. i.e. set.50 might actually
