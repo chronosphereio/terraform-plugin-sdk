@@ -5,6 +5,7 @@ package schema
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"reflect"
 	"testing"
@@ -535,6 +536,95 @@ func TestConfigFieldReader_computedComplexSet(t *testing.T) {
 		if !reflect.DeepEqual(tc.Result, out) {
 			t.Fatalf("%s: bad: %#v", name, out)
 		}
+	}
+}
+
+// nestedListInSetSchema is a set of objects, each holding a list of objects.
+var nestedListInSetSchema = map[string]*Schema{
+	"set": {
+		Type:     TypeSet,
+		Optional: true,
+		Elem: &Resource{
+			Schema: map[string]*Schema{
+				"name": {Type: TypeString, Required: true},
+				"list": {
+					Type:     TypeList,
+					Optional: true,
+					Elem: &Resource{
+						Schema: map[string]*Schema{
+							"value": {Type: TypeString, Optional: true},
+						},
+					},
+				},
+			},
+		},
+	},
+}
+
+var nestedListInSetConfig = map[string]interface{}{
+	"set": []interface{}{
+		map[string]interface{}{
+			"name": "a",
+			"list": []interface{}{map[string]interface{}{"value": "x"}},
+		},
+	},
+}
+
+func TestConfigFieldReader_doesNotModifyAddress(t *testing.T) {
+	r := &ConfigFieldReader{
+		Schema: nestedListInSetSchema,
+		Config: testConfig(t, nestedListInSetConfig),
+	}
+	set, err := r.ReadField([]string{"set"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	codes := set.Value.(*Set).listCode()
+	if len(codes) != 1 {
+		t.Fatalf("expected one set element, got %v", codes)
+	}
+
+	addr := []string{"set", codes[0], "list", "#"}
+	want := append([]string(nil), addr...)
+	out, err := r.ReadField(addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !out.Exists || out.Value != 1 {
+		t.Fatalf("bad count: %#v", out)
+	}
+	if !reflect.DeepEqual(addr, want) {
+		t.Fatalf("ReadField modified its address argument: got %v, want %v", addr, want)
+	}
+}
+
+// ResourceDiff.Get during CustomizeDiff reads a list nested in a set element
+// through DiffFieldReader, whose readListField reuses the address it passes
+// to the config reader. It used to come back as a list of nils.
+func TestResourceDiffGet_nestedListInSet(t *testing.T) {
+	var got []interface{}
+	_, err := schemaMap(nestedListInSetSchema).Diff(
+		context.Background(),
+		nil,
+		testConfig(t, nestedListInSetConfig),
+		func(_ context.Context, d *ResourceDiff, _ interface{}) error {
+			got = d.Get("set").(*Set).List()
+			return nil
+		},
+		nil,
+		true,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []interface{}{
+		map[string]interface{}{
+			"name": "a",
+			"list": []interface{}{map[string]interface{}{"value": "x"}},
+		},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("bad: %#v", got)
 	}
 }
 
